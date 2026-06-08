@@ -29,7 +29,7 @@ class CleanStationboardTests(unittest.TestCase):
         self.assertFalse(observations[0].delayed)
         self.assertEqual(observations[0].run_id, "001234")
 
-    def test_parses_positive_delay_and_marks_delayed(self):
+    def test_parses_positive_dep_delay_and_marks_delayed(self):
         payload = {
             "connections": [
                 {
@@ -37,7 +37,7 @@ class CleanStationboardTests(unittest.TestCase):
                     "type": "tram",
                     "line": "14",
                     "*Z": "001234",
-                    "delay": "+3",
+                    "dep_delay": "+3",
                 }
             ],
         }

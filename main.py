@@ -26,12 +26,9 @@ class DepartureObservation:
     stop_name: str
     line: str
     scheduled_departure: datetime
-    terminal_id: str | None
-    terminal_name: str | None
     run_id: str
     delay_minutes: int
     delayed: bool
-    raw: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -63,9 +60,6 @@ def clean_stationboard(
     snapshot_time: datetime | None = None,
 ) -> list[DepartureObservation]:
     snapshot = snapshot_time or datetime.now(timezone.utc)
-    stop = payload.get("stop") or {}
-    stop_id = str(stop.get("id") or STOP_ID)
-    stop_name = str(stop.get("name") or STOP_NAME)
     observations: list[DepartureObservation] = []
 
     for row in payload.get("connections") or []:
@@ -79,21 +73,17 @@ def clean_stationboard(
         if not run_id or scheduled_departure is None:
             continue
 
-        terminal = row.get("terminal") if isinstance(row.get("terminal"), dict) else {}
-        delay_minutes = parse_delay_minutes(row)
+        delay_minutes = parse_int_minutes(row.get("dep_delay"))
         observations.append(
             DepartureObservation(
                 snapshot_time=snapshot,
-                stop_id=stop_id,
-                stop_name=stop_name,
-                line=str(row["line"]),
+                stop_id=STOP_ID,
+                stop_name=STOP_NAME,
+                line=TRAM_LINE,
                 scheduled_departure=scheduled_departure,
-                terminal_id=string_or_none(terminal.get("id")),
-                terminal_name=string_or_none(terminal.get("name")),
                 run_id=str(run_id),
                 delay_minutes=delay_minutes,
                 delayed=delay_minutes > 0,
-                raw=row,
             )
         )
 
@@ -103,26 +93,10 @@ def clean_stationboard(
 def parse_datetime(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%d.%m.%Y %H:%M"):
-        try:
-            return datetime.strptime(value, fmt)
-        except ValueError:
-            pass
-    return None
-
-
-def parse_delay_minutes(row: dict[str, Any]) -> int:
-    for key in (
-        "delay",
-        "delay_minutes",
-        "departure_delay",
-        "departure_delay_minutes",
-        "dep_delay",
-        "dep_delay_minutes",
-    ):
-        if key in row:
-            return parse_int_minutes(row[key])
-    return 0
+    try:
+        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
 
 
 def parse_int_minutes(value: Any) -> int:
@@ -139,13 +113,6 @@ def parse_int_minutes(value: Any) -> int:
         except ValueError:
             return 0
     return 0
-
-
-def string_or_none(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
 
 
 def get_database_url() -> str:
@@ -174,12 +141,9 @@ def init_db() -> None:
         stop_name TEXT NOT NULL,
         line TEXT NOT NULL,
         scheduled_departure TIMESTAMP NOT NULL,
-        terminal_id TEXT,
-        terminal_name TEXT,
         run_id TEXT NOT NULL,
         delay_minutes INTEGER NOT NULL CHECK (delay_minutes >= 0),
         delayed BOOLEAN NOT NULL,
-        raw JSONB NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         CONSTRAINT uniq_departure_snapshot UNIQUE (
             snapshot_time,
@@ -193,6 +157,11 @@ def init_db() -> None:
         ON tram_departure_observations (snapshot_time);
     CREATE INDEX IF NOT EXISTS idx_departure_observations_line
         ON tram_departure_observations (line);
+
+    ALTER TABLE tram_departure_observations
+        DROP COLUMN IF EXISTS terminal_id,
+        DROP COLUMN IF EXISTS terminal_name,
+        DROP COLUMN IF EXISTS raw;
     """
     with connect() as conn:
         conn.execute(ddl)
@@ -202,8 +171,6 @@ def insert_observations(observations: list[DepartureObservation]) -> int:
     if not observations:
         return 0
 
-    from psycopg.types.json import Jsonb
-
     sql = """
         INSERT INTO tram_departure_observations (
             snapshot_time,
@@ -211,12 +178,9 @@ def insert_observations(observations: list[DepartureObservation]) -> int:
             stop_name,
             line,
             scheduled_departure,
-            terminal_id,
-            terminal_name,
             run_id,
             delay_minutes,
-            delayed,
-            raw
+            delayed
         )
         VALUES (
             %(snapshot_time)s,
@@ -224,12 +188,9 @@ def insert_observations(observations: list[DepartureObservation]) -> int:
             %(stop_name)s,
             %(line)s,
             %(scheduled_departure)s,
-            %(terminal_id)s,
-            %(terminal_name)s,
             %(run_id)s,
             %(delay_minutes)s,
-            %(delayed)s,
-            %(raw)s
+            %(delayed)s
         )
         ON CONFLICT ON CONSTRAINT uniq_departure_snapshot DO NOTHING
         RETURNING id
@@ -241,12 +202,9 @@ def insert_observations(observations: list[DepartureObservation]) -> int:
             "stop_name": item.stop_name,
             "line": item.line,
             "scheduled_departure": item.scheduled_departure,
-            "terminal_id": item.terminal_id,
-            "terminal_name": item.terminal_name,
             "run_id": item.run_id,
             "delay_minutes": item.delay_minutes,
             "delayed": item.delayed,
-            "raw": Jsonb(item.raw),
         }
         for item in observations
     ]
