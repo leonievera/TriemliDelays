@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: triemli-delays-postgres
+    environment:
+      POSTGRES_DB: triemli_delays
+      POSTGRES_USER: triemli
+      POSTGRES_PASSWORD: triemli
+    ports:
+      - "5432:5432"
+    volumes:
+      - triemli_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U triemli -d triemli_delays"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  triemli_postgres_data:
