@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 import unittest
 
-from main import calculate_report, clean_stationboard
+from cleaning import clean_stationboard
+from reporting import calculate_report
 
 
 class CleanStationboardTests(unittest.TestCase):
